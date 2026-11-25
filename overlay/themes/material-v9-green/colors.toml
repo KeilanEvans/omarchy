@@ -1,0 +1,32 @@
+mode = "dark"
+
+# Material UI v9 Dark — Primary Green (#81c784)
+accent = "#81c784"
+selection = "#1d3b21"
+muted = "#718273"
+
+background = "#121212"
+dark_background = "#0b0f0c"
+darker_background = "#070a08"
+lighter_background = "#1a211b"
+
+foreground = "#ebf2ec"
+dark_foreground = "#94a696"
+light_foreground = "#f4f8f4"
+bright_foreground = "#ffffff"
+
+red = "#ef5350"
+yellow = "#ffd54f"
+orange = "#ffa726"
+green = "#81c784"
+cyan = "#4dd0e1"
+blue = "#90caf9"
+magenta = "#ce93d8"
+brown = "#a1887f"
+
+bright_red = "#e57373"
+bright_yellow = "#ffe082"
+bright_green = "#a5d6a7"
+bright_cyan = "#80deea"
+bright_blue = "#bbdefb"
+bright_magenta = "#e1bee7"

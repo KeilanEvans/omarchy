@@ -1,0 +1,32 @@
+mode = "dark"
+
+# Material UI v9 Dark — Primary Purple (#ce93d8)
+accent = "#ce93d8"
+selection = "#3b234a"
+muted = "#7e7387"
+
+background = "#121212"
+dark_background = "#0d0b10"
+darker_background = "#08070a"
+lighter_background = "#1e1b22"
+
+foreground = "#efeaf4"
+dark_foreground = "#a195ab"
+light_foreground = "#f7f3fa"
+bright_foreground = "#ffffff"
+
+red = "#ef5350"
+yellow = "#ffd54f"
+orange = "#ffa726"
+green = "#81c784"
+cyan = "#4dd0e1"
+blue = "#90caf9"
+magenta = "#ce93d8"
+brown = "#a1887f"
+
+bright_red = "#e57373"
+bright_yellow = "#ffe082"
+bright_green = "#a5d6a7"
+bright_cyan = "#80deea"
+bright_blue = "#bbdefb"
+bright_magenta = "#e1bee7"

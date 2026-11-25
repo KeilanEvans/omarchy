@@ -1,0 +1,32 @@
+mode = "dark"
+
+# Material UI v9 Dark — Primary Amber / Warm Orange (#ffb74d)
+accent = "#ffb74d"
+selection = "#422f18"
+muted = "#85796c"
+
+background = "#121212"
+dark_background = "#0f0d0b"
+darker_background = "#0a0807"
+lighter_background = "#211d18"
+
+foreground = "#f3eee8"
+dark_foreground = "#a89d91"
+light_foreground = "#faf7f3"
+bright_foreground = "#ffffff"
+
+red = "#ef5350"
+yellow = "#ffd54f"
+orange = "#ffb74d"
+green = "#81c784"
+cyan = "#4dd0e1"
+blue = "#90caf9"
+magenta = "#ce93d8"
+brown = "#bcaaa4"
+
+bright_red = "#e57373"
+bright_yellow = "#ffe082"
+bright_green = "#a5d6a7"
+bright_cyan = "#80deea"
+bright_blue = "#bbdefb"
+bright_magenta = "#e1bee7"

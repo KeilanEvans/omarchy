@@ -1,0 +1,32 @@
+mode = "dark"
+
+# Material UI v9 Dark — Primary Teal (#80cbc4)
+accent = "#80cbc4"
+selection = "#1b3a38"
+muted = "#6f8280"
+
+background = "#121212"
+dark_background = "#0b0f0f"
+darker_background = "#070a0a"
+lighter_background = "#1b2222"
+
+foreground = "#eaf2f1"
+dark_foreground = "#93a6a4"
+light_foreground = "#f3f8f7"
+bright_foreground = "#ffffff"
+
+red = "#ef5350"
+yellow = "#ffd54f"
+orange = "#ffa726"
+green = "#81c784"
+cyan = "#80cbc4"
+blue = "#90caf9"
+magenta = "#ce93d8"
+brown = "#a1887f"
+
+bright_red = "#e57373"
+bright_yellow = "#ffe082"
+bright_green = "#a5d6a7"
+bright_cyan = "#b2dfdb"
+bright_blue = "#bbdefb"
+bright_magenta = "#e1bee7"
