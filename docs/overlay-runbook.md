@@ -4,6 +4,17 @@ This runbook documents every day-to-day workflow for maintaining this self-conta
 
 See [GLOSSARY.md](../GLOSSARY.md) for canonical terminology and [docs/adr/](adr/) for the architectural decisions behind this layout.
 
+## Quick Commands (`Makefile`)
+
+Run `make` (or `make help`) at the repo root to see all shortcuts:
+
+- `make iso` / `make iso-edge` / `make iso-fast` — build the offline ISO (or `make iso-rebuild` to wipe caches and rebuild from scratch)
+- `make test-iso` / `make test-iso-unattended` / `make test-vm-boot` — test the ISO or installed disk in QEMU
+- `make clean` / `make clean-all` — remove build outputs/VM disks, or wipe pacman/AUR caches too
+- `make apply` (`PROFILE=desktop`) — sync Overlay configs, themes, and Package Policy on a live machine
+- `make pull-upstream` — fetch and merge `upstream/quattro`
+- `make check` / `make packages` / `make check-themes` — validate syntax, inspect resolved packages, and check all Material UI v9 themes
+
 ## Repository Layout
 
 All customizations and ISO tooling live exclusively under `overlay/` and `iso/` so **Upstream** files stay untouched:
