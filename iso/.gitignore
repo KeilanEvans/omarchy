@@ -1,0 +1,13 @@
+# Generated ISO build artifacts, caches, working trees, and VM images.
+# Kept local to iso/ so Upstream's root .gitignore stays untouched.
+release/
+.cache/
+work/
+out/
+*.iso
+*.iso.sha256
+*.pkg.tar.zst
+*.pkg.tar.zst.sig
+*.qcow2
+*.fd
+*.log

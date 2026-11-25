@@ -1,0 +1,290 @@
+#!/bin/bash
+
+# Live ISO installer for the self-contained Omarchy custom fork.
+# Supports interactive TUI (reusing Upstream's setup-form.sh) and unattended
+# installs (--config FILE or a volume labeled 'cidata' with unattended.env).
+
+set -euo pipefail
+
+OVERLAY_DIR="/opt/omarchy-overlay"
+INSTALLER_DIR="/opt/omarchy-installer"
+MIRROR_DIR="/var/cache/omarchy/mirror"
+
+source "$OVERLAY_DIR/lib/packages.sh"
+
+notice() {
+  local msg=$1
+  local secs=${2:-2}
+  echo -e "\033[33m$msg\033[0m"
+  sleep "$secs"
+}
+
+config_file=""
+while (( $# > 0 )); do
+  case "$1" in
+    --config)
+      config_file=${2:-}
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: omarchy-custom-install [--config /path/to/unattended.env]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Auto-detect cidata volume for unattended installs
+cidata_mount=""
+cleanup() {
+  if [[ -n $cidata_mount ]] && mountpoint -q "$cidata_mount"; then
+    umount "$cidata_mount" || true
+    rmdir "$cidata_mount" || true
+  fi
+}
+trap cleanup EXIT
+
+if [[ -z $config_file && -e /dev/disk/by-label/cidata ]]; then
+  cidata_mount=$(mktemp -d)
+  if mount -o ro /dev/disk/by-label/cidata "$cidata_mount" 2>/dev/null; then
+    if [[ -f $cidata_mount/unattended.env ]]; then
+      config_file="$cidata_mount/unattended.env"
+    fi
+  fi
+fi
+
+# Defaults
+TARGET_DISK=""
+LUKS_PASSWORD=""
+USERNAME=""
+USER_PASSWORD=""
+FULL_NAME=""
+EMAIL_ADDRESS=""
+HOSTNAME="omarchy"
+TIMEZONE="UTC"
+KEYBOARD="us"
+LANGUAGE="en"
+OVERLAY_PROFILE=""
+AUTO_REBOOT="0"
+
+if [[ -n $config_file ]]; then
+  echo "==> Loading unattended configuration from $config_file"
+  # shellcheck disable=SC1090
+  source "$config_file"
+else
+  if [[ -f $INSTALLER_DIR/provisioning/console-font.sh ]]; then
+    # shellcheck disable=SC1091
+    source "$INSTALLER_DIR/provisioning/console-font.sh" || true
+  fi
+  if [[ -f $INSTALLER_DIR/provisioning/setup-form.sh ]]; then
+    # shellcheck disable=SC1091
+    source "$INSTALLER_DIR/provisioning/setup-form.sh"
+  fi
+
+  clear
+  echo "=== Omarchy Custom Offline Installer ==="
+  echo
+
+  # 1. Target disk selection
+  mapfile -t disks < <(lsblk -dpno NAME,SIZE,MODEL | grep -E '/dev/(sd|nvme|vd)' || true)
+  if (( ${#disks[@]} == 0 )); then
+    echo "Error: no target disks detected." >&2
+    exit 1
+  fi
+  selected_disk=$(printf '%s\n' "${disks[@]}" | gum choose --header="Select target disk (ALL DATA WILL BE ERASED)")
+  TARGET_DISK=$(awk '{print $1}' <<<"$selected_disk")
+
+  # 2. Profile selection
+  mapfile -t profiles < <(overlay_list_profiles "$OVERLAY_DIR")
+  profile_choices=("none" "${profiles[@]}")
+  chosen_profile=$(printf '%s\n' "${profile_choices[@]}" | gum choose --header="Select Overlay Profile")
+  if [[ $chosen_profile != "none" ]]; then
+    OVERLAY_PROFILE="$chosen_profile"
+  fi
+
+  # 3. User & system details (reusing Upstream form variables where available)
+  USERNAME=$(gum input --header="Username" --placeholder="keilan")
+  USER_PASSWORD=$(gum input --password --header="User password")
+  USER_PASSWORD_CONFIRM=$(gum input --password --header="Confirm user password")
+  if [[ -z $USER_PASSWORD || $USER_PASSWORD != "$USER_PASSWORD_CONFIRM" ]]; then
+    echo "Error: passwords did not match." >&2
+    exit 1
+  fi
+  LUKS_PASSWORD=$(gum input --password --header="Disk encryption (LUKS) passphrase (leave empty to reuse user password)")
+  if [[ -z $LUKS_PASSWORD ]]; then
+    LUKS_PASSWORD="$USER_PASSWORD"
+  fi
+  FULL_NAME=$(gum input --header="Full name" --value="$USERNAME")
+  EMAIL_ADDRESS=$(gum input --header="Email address" --placeholder="you@example.com")
+  HOSTNAME=$(gum input --header="Hostname" --value="omarchy")
+  TIMEZONE=$(gum input --header="Timezone" --value="UTC")
+  KEYBOARD=$(gum input --header="Keyboard layout" --value="us")
+
+  echo
+  echo "Summary:"
+  echo "  Disk:     $TARGET_DISK (WILL BE ERASED)"
+  echo "  Profile:  ${OVERLAY_PROFILE:-none}"
+  echo "  User:     $USERNAME ($FULL_NAME)"
+  echo "  Hostname: $HOSTNAME"
+  echo "  Timezone: $TIMEZONE"
+  echo
+  gum confirm "Erase $TARGET_DISK and begin offline installation?" || exit 0
+fi
+
+# Validate required variables
+for req in TARGET_DISK LUKS_PASSWORD USERNAME USER_PASSWORD HOSTNAME; do
+  if [[ -z ${!req:-} ]]; then
+    echo "Error: required setting '$req' is empty." >&2
+    exit 1
+  fi
+done
+
+echo "==> [1/7] Partitioning $TARGET_DISK (GPT: 2 GiB EFI + LUKS2 Btrfs)..."
+wipefs -af "$TARGET_DISK"
+sgdisk -Z "$TARGET_DISK"
+sgdisk -n 1:0:+2G -t 1:ef00 -c 1:EFI "$TARGET_DISK"
+sgdisk -n 2:0:0 -t 2:8300 -c 2:ROOT "$TARGET_DISK"
+partprobe "$TARGET_DISK"
+sleep 1
+
+if [[ $TARGET_DISK == *nvme* || $TARGET_DISK == *mmcblk* ]]; then
+  EFI_PART="${TARGET_DISK}p1"
+  ROOT_PART="${TARGET_DISK}p2"
+else
+  EFI_PART="${TARGET_DISK}1"
+  ROOT_PART="${TARGET_DISK}2"
+fi
+
+mkfs.fat -F 32 -n EFI "$EFI_PART"
+printf '%s' "$LUKS_PASSWORD" | cryptsetup luksFormat --type luks2 --batch-mode "$ROOT_PART" -
+printf '%s' "$LUKS_PASSWORD" | cryptsetup open "$ROOT_PART" root -
+
+mkfs.btrfs -f -L omarchy /dev/mapper/root
+
+echo "==> [2/7] Creating Btrfs subvolumes and mounting /mnt..."
+mount /dev/mapper/root /mnt
+btrfs subvolume create /mnt/@
+btrfs subvolume create /mnt/@home
+btrfs subvolume create /mnt/@log
+btrfs subvolume create /mnt/@pkg
+btrfs subvolume create /mnt/@snapshots
+umount /mnt
+
+btrfs_opts="noatime,compress=zstd,space_cache=v2"
+mount -o "$btrfs_opts,subvol=@" /dev/mapper/root /mnt
+mkdir -p /mnt/{boot,home,var/log,var/cache/pacman/pkg,.snapshots}
+mount -o "$btrfs_opts,subvol=@home" /dev/mapper/root /mnt/home
+mount -o "$btrfs_opts,subvol=@log" /dev/mapper/root /mnt/var/log
+mount -o "$btrfs_opts,subvol=@pkg" /dev/mapper/root /mnt/var/cache/pacman/pkg
+mount -o "$btrfs_opts,subvol=@snapshots" /dev/mapper/root /mnt/.snapshots
+mount "$EFI_PART" /mnt/boot
+
+echo "==> [3/7] Building offline pacman.conf with Overlay NoExtract rules..."
+OFFLINE_PACMAN_CONF="/tmp/offline-pacman.conf"
+cat >"$OFFLINE_PACMAN_CONF" <<EOF
+[options]
+Architecture = auto
+SigLevel = Optional TrustAll
+LocalFileSigLevel = Optional
+EOF
+
+if [[ -f $OVERLAY_DIR/etc/pacman-noextract.conf ]]; then
+  while IFS= read -r pattern; do
+    printf 'NoExtract = %s\n' "$pattern" >>"$OFFLINE_PACMAN_CONF"
+  done < <(overlay_read_list "$OVERLAY_DIR/etc/pacman-noextract.conf")
+fi
+
+cat >>"$OFFLINE_PACMAN_CONF" <<EOF
+
+[omarchy-offline]
+Server = file://$MIRROR_DIR
+EOF
+
+echo "==> [4/7] Running offline pacstrap from Offline Mirror..."
+# Use a synthetic repo-root view so overlay_resolved_install_packages reads the bundled base list
+SYNTH_ROOT="/tmp/omarchy-synth-root"
+mkdir -p "$SYNTH_ROOT/install"
+cp "$INSTALLER_DIR/omarchy-base.packages" "$SYNTH_ROOT/install/omarchy-base.packages"
+
+mapfile -t install_pkgs < <(
+  {
+    printf '%s\n' \
+      base \
+      btrfs-progs \
+      cryptsetup \
+      dosfstools \
+      efibootmgr \
+      limine \
+      limine-mkinitcpio-hook \
+      limine-snapper-sync \
+      linux-firmware \
+      linux-omarchy \
+      linux-omarchy-headers \
+      snapper \
+      zram-generator
+    overlay_resolved_install_packages "$SYNTH_ROOT" "$OVERLAY_DIR" "$OVERLAY_PROFILE"
+    overlay_aur_packages "$OVERLAY_DIR" "$OVERLAY_PROFILE"
+  } | awk '!seen[$0]++'
+)
+
+pacstrap -K -C "$OFFLINE_PACMAN_CONF" /mnt "${install_pkgs[@]}"
+
+echo "==> [5/7] Configuring base system, bootloader, and user account..."
+genfstab -U /mnt >>/mnt/etc/fstab
+printf '%s\n' "$HOSTNAME" >/mnt/etc/hostname
+printf 'KEYMAP=%s\n' "$KEYBOARD" >/mnt/etc/vconsole.conf
+ln -sf "/usr/share/zoneinfo/$TIMEZONE" /mnt/etc/localtime
+
+sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /mnt/etc/locale.gen
+printf 'LANG=en_US.UTF-8\n' >/mnt/etc/locale.conf
+
+# Configure Limine kernel cmdline for LUKS + Btrfs @ subvolume
+ROOT_UUID=$(blkid -s UUID -o value "$ROOT_PART")
+mkdir -p /mnt/etc/default
+cat >/mnt/etc/default/limine <<EOF
+KERNEL_CMDLINE[default]="cryptdevice=UUID=${ROOT_UUID}:root root=/dev/mapper/root rootflags=subvol=@ rw quiet splash"
+ESP_PATH="/boot"
+EOF
+
+arch-chroot /mnt /bin/bash -euo pipefail <<CHROOT
+hwclock --systohc
+locale-gen
+useradd -m -G wheel -c "$FULL_NAME" -s /bin/bash "$USERNAME"
+printf '%s:%s\n' "$USERNAME" "$USER_PASSWORD" | chpasswd
+printf '%s\n' '%wheel ALL=(ALL:ALL) ALL' >/etc/sudoers.d/10-wheel
+chmod 0440 /etc/sudoers.d/10-wheel
+limine-install || true
+mkinitcpio -P
+CHROOT
+
+echo "==> [6/7] Running Upstream omarchy-apply-system and omarchy-provision-user..."
+arch-chroot /mnt /usr/bin/omarchy-apply-system --install-user "$USERNAME" --first-install
+arch-chroot /mnt su - "$USERNAME" -c "/usr/bin/omarchy-provision-user --force --first-install"
+
+echo "==> [7/7] Applying Overlay and Profile (Overlay takes final precedence)..."
+mkdir -p /mnt/opt/omarchy-overlay
+cp -a "$OVERLAY_DIR/." /mnt/opt/omarchy-overlay/
+arch-chroot /mnt /opt/omarchy-overlay/apply \
+  --install-mode \
+  --target-user "$USERNAME" \
+  --profile "$OVERLAY_PROFILE"
+rm -rf /mnt/opt/omarchy-overlay
+
+sync
+umount -R /mnt
+cryptsetup close root
+
+echo
+echo "=== Installation complete! ==="
+if [[ $AUTO_REBOOT == "1" ]]; then
+  reboot
+else
+  if command -v gum &>/dev/null; then
+    gum confirm "Reboot now?" && reboot
+  else
+    echo "You can now remove the installation media and reboot."
+  fi
+fi

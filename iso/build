@@ -1,0 +1,102 @@
+#!/bin/bash
+
+# Build a self-contained, offline-capable Omarchy x86_64 ISO from this fork
+# inside a privileged Arch Linux container. Outputs to iso/release/.
+
+set -euo pipefail
+
+ISO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$ISO_DIR/.." && pwd)"
+
+usage() {
+  cat <<USAGE
+Usage: iso/build [options]
+
+Options:
+  --channel NAME      Omarchy package channel: stable, rc, or edge (default: stable)
+  --no-aur            Skip pre-building AUR packages from overlay/packages/aur.txt
+  --clean-cache       Remove iso/.cache before building
+  --engine NAME       Container runtime: docker or podman (auto-detected)
+  --image IMAGE       Base Arch container image (default: archlinux:latest)
+  -h, --help          Show this help message
+USAGE
+}
+
+channel="stable"
+no_aur=0
+clean_cache=0
+engine=""
+image="archlinux:latest"
+
+while (( $# > 0 )); do
+  case "$1" in
+    --channel)
+      channel=${2:-}
+      shift 2
+      ;;
+    --no-aur)
+      no_aur=1
+      shift
+      ;;
+    --clean-cache)
+      clean_cache=1
+      shift
+      ;;
+    --engine)
+      engine=${2:-}
+      shift 2
+      ;;
+    --image)
+      image=${2:-}
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+case "$channel" in
+  stable|rc|edge) ;;
+  *)
+    echo "Error: invalid channel '$channel' (expected stable, rc, or edge)" >&2
+    exit 1
+    ;;
+esac
+
+if [[ -z $engine ]]; then
+  if command -v docker &>/dev/null; then
+    engine="docker"
+  elif command -v podman &>/dev/null; then
+    engine="podman"
+  else
+    echo "Error: neither docker nor podman is installed." >&2
+    exit 1
+  fi
+fi
+
+if (( clean_cache )); then
+  rm -rf "$ISO_DIR/.cache"
+fi
+
+mkdir -p "$ISO_DIR/.cache/pacman" "$ISO_DIR/.cache/aur" "$ISO_DIR/release"
+
+echo "Building Omarchy custom ISO (channel=$channel, engine=$engine)..."
+
+"$engine" run --rm --privileged \
+  -e "OMARCHY_ISO_CHANNEL=$channel" \
+  -e "OMARCHY_ISO_NO_AUR=$no_aur" \
+  -v "$REPO_ROOT:/src:ro" \
+  -v "$ISO_DIR/.cache:/cache" \
+  -v "$ISO_DIR/release:/release" \
+  "$image" \
+  /bin/bash /src/iso/builder/entrypoint.sh
+
+echo "Build complete. Artifacts in: $ISO_DIR/release"
+ls -lh "$ISO_DIR/release"/*.iso 2>/dev/null || true

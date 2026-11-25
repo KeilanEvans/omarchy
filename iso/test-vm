@@ -1,0 +1,159 @@
+#!/bin/bash
+
+# Boot a built custom Omarchy ISO in a local QEMU UEFI VM for verification.
+# Disk images and UEFI vars are stored under iso/.cache/ (gitignored).
+
+set -euo pipefail
+
+ISO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CACHE_DIR="$ISO_DIR/.cache"
+RELEASE_DIR="$ISO_DIR/release"
+
+usage() {
+  cat <<USAGE
+Usage: iso/test-vm [options]
+
+Options:
+  --iso PATH          Path to ISO file (default: newest iso/release/omarchy-custom-*.iso)
+  --fresh-disk        Delete and recreate the 40 GiB VM disk before booting
+  --boot-disk         Boot from the installed VM disk without attaching the ISO
+  --unattended FILE   Attach a FAT volume labeled 'cidata' containing FILE as unattended.env
+  --ram MB            VM memory in MiB (default: 8192)
+  --cpus N            Number of vCPUs (default: 4)
+  -h, --help          Show this help message
+USAGE
+}
+
+iso_path=""
+fresh_disk=0
+boot_disk=0
+unattended_file=""
+ram=8192
+cpus=4
+
+while (( $# > 0 )); do
+  case "$1" in
+    --iso)
+      iso_path=${2:-}
+      shift 2
+      ;;
+    --fresh-disk)
+      fresh_disk=1
+      shift
+      ;;
+    --boot-disk)
+      boot_disk=1
+      shift
+      ;;
+    --unattended)
+      unattended_file=${2:-}
+      shift 2
+      ;;
+    --ram)
+      ram=${2:-8192}
+      shift 2
+      ;;
+    --cpus)
+      cpus=${2:-4}
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if ! command -v qemu-system-x86_64 &>/dev/null; then
+  echo "Error: qemu-system-x86_64 not found. Install qemu-full or qemu-desktop." >&2
+  exit 1
+fi
+
+if (( boot_disk == 0 )); then
+  if [[ -z $iso_path ]]; then
+    iso_path=$(find "$RELEASE_DIR" -maxdepth 1 -name 'omarchy-custom-*.iso' -printf '%T@ %p\n' 2>/dev/null | sort -nr | awk 'NR==1 {print $2}')
+  fi
+  if [[ -z $iso_path || ! -f $iso_path ]]; then
+    echo "Error: no ISO found in $RELEASE_DIR. Run 'iso/build' first or pass --iso." >&2
+    exit 1
+  fi
+fi
+
+mkdir -p "$CACHE_DIR"
+vm_disk="$CACHE_DIR/vm-disk.qcow2"
+ovmf_vars="$CACHE_DIR/OVMF_VARS.fd"
+
+ovmf_code=""
+for candidate in \
+  /usr/share/edk2/x64/OVMF_CODE.4m.fd \
+  /usr/share/edk2-ovmf/x64/OVMF_CODE.4m.fd \
+  /usr/share/OVMF/x64/OVMF_CODE.fd; do
+  if [[ -f $candidate ]]; then
+    ovmf_code="$candidate"
+    break
+  fi
+done
+
+if [[ -z $ovmf_code ]]; then
+  echo "Error: OVMF firmware not found. Install edk2-ovmf." >&2
+  exit 1
+fi
+
+ovmf_vars_template="${ovmf_code/OVMF_CODE/OVMF_VARS}"
+
+if (( fresh_disk )) || [[ ! -f $vm_disk ]]; then
+  rm -f "$vm_disk" "$ovmf_vars"
+  qemu-img create -f qcow2 "$vm_disk" 40G
+fi
+
+if [[ ! -f $ovmf_vars ]]; then
+  cp "$ovmf_vars_template" "$ovmf_vars"
+fi
+
+qemu_args=(
+  -machine q35
+  -m "$ram"
+  -smp "$cpus"
+  -drive "if=pflash,format=raw,readonly=on,file=$ovmf_code"
+  -drive "if=pflash,format=raw,file=$ovmf_vars"
+  -drive "file=$vm_disk,format=qcow2,if=virtio"
+  -device virtio-vga-gl
+  -display gtk,gl=on
+  -netdev user,id=net0
+  -device virtio-net-pci,netdev=net0
+)
+
+if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+  qemu_args+=(-enable-kvm -cpu host)
+else
+  qemu_args+=(-cpu max)
+fi
+
+if (( boot_disk == 0 )); then
+  qemu_args+=(-cdrom "$iso_path" -boot order=d)
+fi
+
+cidata_img=""
+cleanup() {
+  [[ -n $cidata_img ]] && rm -f "$cidata_img"
+}
+trap cleanup EXIT
+
+if [[ -n $unattended_file ]]; then
+  if [[ ! -f $unattended_file ]]; then
+    echo "Error: unattended config '$unattended_file' not found." >&2
+    exit 1
+  fi
+  cidata_img=$(mktemp "$CACHE_DIR/cidata-XXXXXX.img")
+  truncate -s 4M "$cidata_img"
+  mkfs.fat -n cidata "$cidata_img" >/dev/null
+  mcopy -i "$cidata_img" "$unattended_file" ::/unattended.env
+  qemu_args+=(-drive "file=$cidata_img,format=raw,if=virtio,readonly=on")
+fi
+
+exec qemu-system-x86_64 "${qemu_args[@]}"

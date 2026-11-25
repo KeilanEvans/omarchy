@@ -1,0 +1,11 @@
+arch-install-scripts
+btrfs-progs
+cryptsetup
+dosfstools
+efibootmgr
+gptfdisk
+gum
+jq
+kmscon
+limine
+parted
