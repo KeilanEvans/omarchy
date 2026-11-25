@@ -1,0 +1,269 @@
+#!/bin/bash
+
+# Apply the Overlay (and optional Profile) either during ISO installation
+# (--install-mode, running as root in target chroot) or on a live system
+# (explicit user sync with automatic .bak backups).
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+INSTALLED_OVERLAY_DIR="/usr/local/share/omarchy-overlay"
+PROFILE_FILE="/etc/omarchy-overlay/profile"
+
+source "$SCRIPT_DIR/lib/packages.sh"
+
+usage() {
+  cat <<USAGE
+Usage:
+  overlay/apply [--profile NAME] [--pull] [--force]
+  overlay/apply --install-mode --target-user USER [--profile NAME]
+
+Options:
+  --profile NAME        Apply a specific Profile from overlay/profiles/<NAME>
+  --pull                Run 'git pull --ff-only' on the repo before applying
+  --force               Overwrite existing files in ~/.config without .bak backups
+  --install-mode        Run root-side + user-side Overlay setup inside ISO chroot
+  --target-user USER    Target username when running --install-mode
+  -h, --help            Show this help message
+USAGE
+}
+
+install_mode=0
+target_user=""
+profile=""
+do_pull=0
+force=0
+
+while (( $# > 0 )); do
+  case "$1" in
+    --install-mode)
+      install_mode=1
+      shift
+      ;;
+    --target-user)
+      target_user=${2:-}
+      shift 2
+      ;;
+    --profile)
+      profile=${2:-}
+      shift 2
+      ;;
+    --pull)
+      do_pull=1
+      shift
+      ;;
+    --force)
+      force=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+run_as_root() {
+  if (( EUID == 0 )); then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+# Copy files from src_dir into dst_dir. In non-force mode, back up modified
+# destination files to <file>.bak.<timestamp> before replacing them.
+sync_tree() {
+  local src_dir=$1
+  local dst_dir=$2
+  local make_backups=$3
+  local owner=${4:-}
+
+  [[ -d $src_dir ]] || return 0
+
+  local rel src dst ts
+  ts=$(date +%Y%m%d%H%M%S)
+  while IFS= read -r -d '' src; do
+    rel=${src#"$src_dir"/}
+    [[ $rel == ".gitkeep" || $rel == */.gitkeep ]] && continue
+    dst="$dst_dir/$rel"
+    mkdir -p "$(dirname "$dst")"
+    if (( make_backups )) && [[ -f $dst ]] && ! cmp -s "$src" "$dst"; then
+      cp -a "$dst" "$dst.bak.$ts"
+    fi
+    cp -a "$src" "$dst"
+    if [[ -n $owner ]]; then
+      chown "$owner:$owner" "$dst"
+    fi
+  done < <(find "$src_dir" -type f -print0)
+}
+
+sync_themes() {
+  local src_themes=$1
+  local dst_themes=$2
+  local owner=${3:-}
+
+  [[ -d $src_themes ]] || return 0
+  mkdir -p "$dst_themes"
+
+  local theme_dir name
+  for theme_dir in "$src_themes"/*; do
+    [[ -d $theme_dir ]] || continue
+    name=$(basename "$theme_dir")
+    rm -rf "${dst_themes:?}/$name"
+    cp -a "$theme_dir" "$dst_themes/$name"
+    if [[ -n $owner ]]; then
+      chown -R "$owner:$owner" "$dst_themes/$name"
+    fi
+  done
+}
+
+install_post_update_hook() {
+  local user_home=$1
+  local owner=${2:-}
+  local hook_dir="$user_home/.config/omarchy/hooks/post-update.d"
+  local hook_src="$SCRIPT_DIR/hooks/post-update.d/10-overlay-policy.sh"
+  local hook_dst="$hook_dir/10-overlay-policy.sh"
+
+  mkdir -p "$hook_dir"
+  install -m 0755 "$hook_src" "$hook_dst"
+  if [[ -n $owner ]]; then
+    chown -R "$owner:$owner" "$user_home/.config/omarchy/hooks"
+  fi
+}
+
+default_theme_name() {
+  if [[ -f $SCRIPT_DIR/themes/default ]]; then
+    tr -d '[:space:]' <"$SCRIPT_DIR/themes/default"
+  fi
+}
+
+if (( install_mode )); then
+  if (( EUID != 0 )); then
+    echo "Error: --install-mode must run as root" >&2
+    exit 1
+  fi
+  if [[ -z $target_user ]]; then
+    echo "Error: --target-user is required with --install-mode" >&2
+    exit 1
+  fi
+
+  target_home=$(getent passwd "$target_user" | cut -d: -f6)
+  if [[ -z $target_home || ! -d $target_home ]]; then
+    echo "Error: home directory for '$target_user' not found" >&2
+    exit 1
+  fi
+
+  # 1. Install Overlay snapshot on the target machine for post-update hooks
+  rm -rf "$INSTALLED_OVERLAY_DIR"
+  mkdir -p "$INSTALLED_OVERLAY_DIR"
+  cp -a "$SCRIPT_DIR/." "$INSTALLED_OVERLAY_DIR/"
+  mkdir -p "$(dirname "$PROFILE_FILE")"
+  printf '%s\n' "$profile" >"$PROFILE_FILE"
+
+  # 2. Apply system-side hooks (including pacman NoExtract & theme cleanup)
+  for hook in "$INSTALLED_OVERLAY_DIR"/hooks/post-install.d/*.sh; do
+    [[ -f $hook ]] || continue
+    OVERLAY_DIR="$INSTALLED_OVERLAY_DIR" OVERLAY_PROFILE="$profile" TARGET_USER="$target_user" bash "$hook"
+  done
+  if [[ -n $profile && -d $INSTALLED_OVERLAY_DIR/profiles/$profile/hooks/post-install.d ]]; then
+    for hook in "$INSTALLED_OVERLAY_DIR"/profiles/"$profile"/hooks/post-install.d/*.sh; do
+      [[ -f $hook ]] || continue
+      OVERLAY_DIR="$INSTALLED_OVERLAY_DIR" OVERLAY_PROFILE="$profile" TARGET_USER="$target_user" bash "$hook"
+    done
+  fi
+
+  # 3. Seed themes & configs into /etc/skel and target user (Overlay wins)
+  sync_themes "$INSTALLED_OVERLAY_DIR/themes" "/etc/skel/.config/omarchy/themes" ""
+  sync_themes "$INSTALLED_OVERLAY_DIR/themes" "$target_home/.config/omarchy/themes" "$target_user"
+  sync_tree "$INSTALLED_OVERLAY_DIR/config" "/etc/skel/.config" 0 ""
+  sync_tree "$INSTALLED_OVERLAY_DIR/config" "$target_home/.config" 0 "$target_user"
+
+  if [[ -n $profile && -d $INSTALLED_OVERLAY_DIR/profiles/$profile/config ]]; then
+    sync_tree "$INSTALLED_OVERLAY_DIR/profiles/$profile/config" "/etc/skel/.config" 0 ""
+    sync_tree "$INSTALLED_OVERLAY_DIR/profiles/$profile/config" "$target_home/.config" 0 "$target_user"
+  fi
+
+  # 4. Install post-update Package Policy hook
+  install_post_update_hook "/etc/skel" ""
+  install_post_update_hook "$target_home" "$target_user"
+
+  # 5. Activate default Material UI v9 theme for the target user
+  theme=$(default_theme_name)
+  if [[ -n $theme && -d $target_home/.config/omarchy/themes/$theme ]]; then
+    su - "$target_user" -c "OMARCHY_PATH=/usr/share/omarchy /usr/bin/omarchy-theme-set '$theme'" || true
+  fi
+
+  exit 0
+fi
+
+# --- Live runtime mode ---
+if (( EUID == 0 )); then
+  echo "Error: run overlay/apply as your normal user (sudo will be used where needed)." >&2
+  exit 1
+fi
+
+if (( do_pull )) && [[ -d $REPO_ROOT/.git ]]; then
+  git -C "$REPO_ROOT" pull --ff-only
+fi
+
+if [[ -z $profile && -f $PROFILE_FILE ]]; then
+  profile=$(tr -d '[:space:]' <"$PROFILE_FILE")
+fi
+
+# Refresh installed snapshot so post-update hook uses the latest Policy
+run_as_root rm -rf "$INSTALLED_OVERLAY_DIR"
+run_as_root mkdir -p "$INSTALLED_OVERLAY_DIR"
+run_as_root cp -a "$SCRIPT_DIR/." "$INSTALLED_OVERLAY_DIR/"
+run_as_root mkdir -p "$(dirname "$PROFILE_FILE")"
+printf '%s\n' "$profile" | run_as_root tee "$PROFILE_FILE" >/dev/null
+
+# Enforce NoExtract + clean upstream themes
+OVERLAY_DIR="$INSTALLED_OVERLAY_DIR" bash "$INSTALLED_OVERLAY_DIR/hooks/post-install.d/10-enforce-noextract.sh"
+
+# Sync themes and configs into $HOME (with .bak backups unless --force)
+make_backups=1
+if (( force )); then
+  make_backups=0
+fi
+
+sync_themes "$SCRIPT_DIR/themes" "$HOME/.config/omarchy/themes" ""
+sync_tree "$SCRIPT_DIR/config" "$HOME/.config" "$make_backups" ""
+if [[ -n $profile && -d $SCRIPT_DIR/profiles/$profile/config ]]; then
+  sync_tree "$SCRIPT_DIR/profiles/$profile/config" "$HOME/.config" "$make_backups" ""
+fi
+
+install_post_update_hook "$HOME" ""
+
+# Enforce Package Policy (install missing add packages, drop excluded packages)
+to_add=()
+while IFS= read -r pkg; do
+  if ! pacman -Q -- "$pkg" &>/dev/null; then
+    to_add+=("$pkg")
+  fi
+done < <(overlay_added_packages "$SCRIPT_DIR" "$profile")
+
+if (( ${#to_add[@]} > 0 )); then
+  echo "Installing Overlay packages: ${to_add[*]}"
+  omarchy-pkg-add "${to_add[@]}"
+fi
+
+to_drop=()
+while IFS= read -r pkg; do
+  if pacman -Q -- "$pkg" &>/dev/null; then
+    to_drop+=("$pkg")
+  fi
+done < <(overlay_excluded_packages "$SCRIPT_DIR" "$profile")
+
+if (( ${#to_drop[@]} > 0 )); then
+  echo "Removing excluded packages: ${to_drop[*]}"
+  omarchy-pkg-drop "${to_drop[@]}"
+fi
+
+echo "Overlay applied successfully (profile: ${profile:-none})."

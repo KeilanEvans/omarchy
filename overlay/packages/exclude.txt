@@ -1,0 +1,22 @@
+# Upstream default packages to exclude at ISO build time and remove after omarchy-update.
+# One package name per line. Blank lines and # comments are ignored.
+
+# Built-in upstream theme media packages (replaced by overlay/themes/)
+omarchy-themes-backgrounds
+omarchy-themes-intros
+omarchy-themes-loops
+
+# Optional upstream apps you can uncomment to exclude:
+# google-chrome
+# libreoffice-fresh
+# obsidian
+# flowtunes
+# fantasi
+# pi-coding-agent
+# superwhisper-bin
+# monologue
+# hype
+# folio
+# papers
+# pinta
+# localsend

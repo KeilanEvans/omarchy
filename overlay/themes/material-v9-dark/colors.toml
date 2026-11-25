@@ -1,0 +1,32 @@
+mode = "dark"
+
+# Material UI v9 (Material Design 3 dark tonal surface palette)
+accent = "#90caf9"
+selection = "#1e3a5f"
+muted = "#6e7781"
+
+background = "#121212"
+dark_background = "#0e0e0e"
+darker_background = "#090909"
+lighter_background = "#1e1e1e"
+
+foreground = "#e6e1e5"
+dark_foreground = "#938f99"
+light_foreground = "#f3eff4"
+bright_foreground = "#ffffff"
+
+red = "#f2b8b5"
+yellow = "#ffd54f"
+orange = "#ffb74d"
+green = "#81c784"
+cyan = "#4dd0e1"
+blue = "#90caf9"
+magenta = "#ce93d8"
+brown = "#a1887f"
+
+bright_red = "#ef9a9a"
+bright_yellow = "#ffe082"
+bright_green = "#a5d6a7"
+bright_cyan = "#80deea"
+bright_blue = "#bbdefb"
+bright_magenta = "#e1bee7"
