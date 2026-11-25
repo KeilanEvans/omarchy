@@ -64,8 +64,9 @@ USER_PASSWORD=""
 FULL_NAME=""
 EMAIL_ADDRESS=""
 HOSTNAME="omarchy"
-TIMEZONE="UTC"
-KEYBOARD="us"
+TIMEZONE="Europe/London"
+KEYBOARD="uk"
+LOCALE="en_GB.UTF-8"
 LANGUAGE="en"
 OVERLAY_PROFILE=""
 AUTO_REBOOT="0"
@@ -120,8 +121,8 @@ else
   FULL_NAME=$(gum input --header="Full name" --value="$USERNAME")
   EMAIL_ADDRESS=$(gum input --header="Email address" --placeholder="you@example.com")
   HOSTNAME=$(gum input --header="Hostname" --value="omarchy")
-  TIMEZONE=$(gum input --header="Timezone" --value="UTC")
-  KEYBOARD=$(gum input --header="Keyboard layout" --value="us")
+  TIMEZONE=$(gum input --header="Timezone" --value="Europe/London")
+  KEYBOARD=$(gum input --header="Console keyboard layout" --value="uk")
 
   echo
   echo "Summary:"
@@ -238,8 +239,8 @@ printf '%s\n' "$HOSTNAME" >/mnt/etc/hostname
 printf 'KEYMAP=%s\n' "$KEYBOARD" >/mnt/etc/vconsole.conf
 ln -sf "/usr/share/zoneinfo/$TIMEZONE" /mnt/etc/localtime
 
-sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /mnt/etc/locale.gen
-printf 'LANG=en_US.UTF-8\n' >/mnt/etc/locale.conf
+sed -i "s/^#${LOCALE} UTF-8/${LOCALE} UTF-8/" /mnt/etc/locale.gen
+printf 'LANG=%s\n' "$LOCALE" >/mnt/etc/locale.conf
 
 # Configure Limine kernel cmdline for LUKS + Btrfs @ subvolume
 ROOT_UUID=$(blkid -s UUID -o value "$ROOT_PART")
