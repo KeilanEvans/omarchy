@@ -12,6 +12,12 @@ MIRROR_DIR="/var/cache/omarchy/mirror"
 
 source "$OVERLAY_DIR/lib/packages.sh"
 
+ISO_CHANNEL="edge"
+if [[ -f $INSTALLER_DIR/channel ]]; then
+  ISO_CHANNEL=$(tr -d '[:space:]' <"$INSTALLER_DIR/channel")
+fi
+export OMARCHY_ISO_CHANNEL="$ISO_CHANNEL"
+
 notice() {
   local msg=$1
   local secs=${2:-2}
@@ -262,7 +268,7 @@ mkinitcpio -P
 CHROOT
 
 echo "==> [6/7] Running Upstream omarchy-apply-system and omarchy-provision-user..."
-arch-chroot /mnt /usr/bin/omarchy-apply-system --install-user "$USERNAME" --first-install
+arch-chroot /mnt env OMARCHY_MIRROR="$ISO_CHANNEL" /usr/bin/omarchy-apply-system --install-user "$USERNAME" --first-install
 arch-chroot /mnt su - "$USERNAME" -c "/usr/bin/omarchy-provision-user --force --first-install"
 
 echo "==> [7/7] Applying Overlay and Profile (Overlay takes final precedence)..."

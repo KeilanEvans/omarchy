@@ -13,7 +13,7 @@ usage() {
 Usage: iso/build [options]
 
 Options:
-  --channel NAME      Omarchy package channel: stable, rc, or edge (default: stable)
+  --channel NAME      Omarchy package channel: stable, rc, or edge (default: edge)
   --no-aur            Skip pre-building AUR packages from overlay/packages/aur.txt
   --clean-cache       Remove iso/.cache before building
   --engine NAME       Container runtime: docker or podman (auto-detected)
@@ -22,7 +22,7 @@ Options:
 USAGE
 }
 
-channel="stable"
+channel="edge"
 no_aur=0
 clean_cache=0
 engine=""

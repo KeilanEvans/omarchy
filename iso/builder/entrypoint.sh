@@ -45,10 +45,13 @@ pacman -Sy --noconfirm --needed \
 
 echo "==> [2/6] Preparing pacman configuration for channel '$CHANNEL'..."
 BUILD_PACMAN_CONF="$WORK_DIR/build-pacman.conf"
+BUILD_MIRRORLIST="$WORK_DIR/mirrorlist"
 cp "/src/default/pacman/pacman-$CHANNEL.conf" "$BUILD_PACMAN_CONF"
+cp "/src/default/pacman/mirrorlist-$CHANNEL" "$BUILD_MIRRORLIST"
 
-# Use container's mirrorlist for Arch repos and point CacheDir at host cache
-sed -i 's|^Include = /etc/pacman.d/mirrorlist|Include = /etc/pacman.d/mirrorlist|' "$BUILD_PACMAN_CONF"
+# Point core/extra/multilib at Omarchy's pinned snapshot mirror so versioned
+# Omarchy packages (e.g. hyprland, nvidia) match pkgs.omarchy.org exactly.
+sed -i "s|^Include = /etc/pacman.d/mirrorlist|Include = $BUILD_MIRRORLIST|" "$BUILD_PACMAN_CONF"
 mkdir -p "$WORK_DIR/empty-db"
 
 echo "==> [3/6] Resolving and downloading Offline Mirror packages..."
@@ -74,11 +77,12 @@ mapfile -t mirror_pkgs < <(
 
 pacman --config "$BUILD_PACMAN_CONF" --dbpath "$WORK_DIR/empty-db" -Sy --noconfirm
 
-# Filter out any packages not present in configured sync repos (warn loudly)
+# Filter out any packages not present in configured sync repos (including virtual provides via -Sp)
 valid_pkgs=()
 for pkg in "${mirror_pkgs[@]}"; do
   if pacman --config "$BUILD_PACMAN_CONF" --dbpath "$WORK_DIR/empty-db" -Si -- "$pkg" &>/dev/null ||
-     pacman --config "$BUILD_PACMAN_CONF" --dbpath "$WORK_DIR/empty-db" -Sg -- "$pkg" &>/dev/null; then
+     pacman --config "$BUILD_PACMAN_CONF" --dbpath "$WORK_DIR/empty-db" -Sg -- "$pkg" &>/dev/null ||
+     pacman --config "$BUILD_PACMAN_CONF" --dbpath "$WORK_DIR/empty-db" -Sp -- "$pkg" &>/dev/null; then
     valid_pkgs+=("$pkg")
   else
     echo "Warning: package '$pkg' not found in sync repos; skipping from Offline Mirror." >&2
@@ -89,6 +93,15 @@ pacman --config "$BUILD_PACMAN_CONF" \
   --dbpath "$WORK_DIR/empty-db" \
   --cachedir "$PACMAN_CACHE" \
   -Sw --noconfirm --needed -- "${valid_pkgs[@]}"
+
+# Download optional hardware packages individually so mutually-exclusive drivers
+# (e.g. nvidia-open vs nvidia-580xx) do not conflict in one transaction.
+while IFS= read -r hw_pkg; do
+  pacman --config "$BUILD_PACMAN_CONF" \
+    --dbpath "$WORK_DIR/empty-db" \
+    --cachedir "$PACMAN_CACHE" \
+    -Sw --noconfirm --needed -- "$hw_pkg" &>/dev/null || true
+done < <(overlay_read_list /src/install/omarchy-other.packages)
 
 cp -a "$PACMAN_CACHE"/*.pkg.tar.zst "$MIRROR_DIR/" 2>/dev/null || true
 
@@ -149,6 +162,7 @@ mkdir -p \
 
 cp -a "$MIRROR_DIR/." "$PROFILE_DIR/airootfs/var/cache/omarchy/mirror/"
 cp -a /src/overlay/. "$PROFILE_DIR/airootfs/opt/omarchy-overlay/"
+printf '%s\n' "$CHANNEL" >"$PROFILE_DIR/airootfs/opt/omarchy-installer/channel"
 cp -a /src/install/omarchy-base.packages "$PROFILE_DIR/airootfs/opt/omarchy-installer/"
 cp -a /src/install/provisioning/setup-form.sh "$PROFILE_DIR/airootfs/opt/omarchy-installer/provisioning/"
 cp -a /src/install/provisioning/console-font.sh "$PROFILE_DIR/airootfs/opt/omarchy-installer/provisioning/"

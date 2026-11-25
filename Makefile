@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-CHANNEL ?= stable
+CHANNEL ?= edge
 PROFILE ?=
 ENGINE ?=
 NO_AUR ?= 0

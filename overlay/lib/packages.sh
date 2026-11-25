@@ -51,8 +51,17 @@ overlay_aur_packages() {
   overlay_read_list "${files[@]}"
 }
 
+overlay_core_omarchy_packages() {
+  local channel=${OMARCHY_ISO_CHANNEL:-edge}
+  if [[ $channel == "edge" ]]; then
+    printf '%s\n' omarchy-dev omarchy-settings-dev
+  else
+    printf '%s\n' omarchy omarchy-settings
+  fi
+}
+
 # Print the final x86 official package list for a target install:
-# (Upstream base + omarchy + omarchy-settings + Overlay add) - Overlay exclude
+# (Upstream base + omarchy core packages + Overlay add) - Overlay exclude
 overlay_resolved_install_packages() {
   local repo_root=$1
   local overlay_dir=$2
@@ -62,7 +71,7 @@ overlay_resolved_install_packages() {
   overlay_excluded_packages "$overlay_dir" "$profile" >"$exclude_file"
 
   {
-    printf '%s\n' omarchy omarchy-settings
+    overlay_core_omarchy_packages
     overlay_read_list "$repo_root/install/omarchy-base.packages"
     overlay_added_packages "$overlay_dir" "$profile"
   } | awk -v excludes="$exclude_file" '
@@ -73,8 +82,9 @@ overlay_resolved_install_packages() {
 }
 
 # Print every official package needed in the Offline Mirror so any Profile can
-# install offline from a single ISO (base + other + all Profiles' add lists,
-# minus base-only exclusions).
+# install offline from a single ISO (base + all Profiles' add lists, minus
+# base-only exclusions). Hardware/optional packages from omarchy-other.packages
+# are downloaded separately to avoid cross-driver conflicts.
 overlay_resolved_mirror_packages() {
   local repo_root=$1
   local overlay_dir=$2
@@ -83,8 +93,8 @@ overlay_resolved_mirror_packages() {
   overlay_excluded_packages "$overlay_dir" "" >"$exclude_file"
 
   {
-    printf '%s\n' omarchy omarchy-settings
-    overlay_read_list "$repo_root/install/omarchy-base.packages" "$repo_root/install/omarchy-other.packages"
+    overlay_core_omarchy_packages
+    overlay_read_list "$repo_root/install/omarchy-base.packages"
     overlay_added_packages "$overlay_dir" ""
     local profile
     while IFS= read -r profile; do
