@@ -166,3 +166,7 @@ mkarchiso -v -w "$WORK_DIR/archiso-work" -o /release "$PROFILE_DIR"
     sha256sum "$iso_file" >"$iso_file.sha256"
   done
 )
+
+if [[ -n ${HOST_UID:-} && -n ${HOST_GID:-} ]]; then
+  chown -R "$HOST_UID:$HOST_GID" /release /cache 2>/dev/null || true
+fi

@@ -87,11 +87,21 @@ fi
 
 mkdir -p "$ISO_DIR/.cache/pacman" "$ISO_DIR/.cache/aur" "$ISO_DIR/release"
 
-echo "Building Omarchy custom ISO (channel=$channel, engine=$engine)..."
+engine_cmd=("$engine")
+if [[ $engine == "docker" ]] && (( EUID != 0 )) && ! docker info &>/dev/null; then
+  engine_cmd=(sudo docker)
+elif [[ $engine == "podman" ]] && (( EUID != 0 )); then
+  # Rootful podman is required for privileged archiso mounts/loop devices
+  engine_cmd=(sudo podman)
+fi
 
-"$engine" run --rm --privileged \
+echo "Building Omarchy custom ISO (channel=$channel, engine=${engine_cmd[*]})..."
+
+"${engine_cmd[@]}" run --rm --privileged \
   -e "OMARCHY_ISO_CHANNEL=$channel" \
   -e "OMARCHY_ISO_NO_AUR=$no_aur" \
+  -e "HOST_UID=$(id -u)" \
+  -e "HOST_GID=$(id -g)" \
   -v "$REPO_ROOT:/src:ro" \
   -v "$ISO_DIR/.cache:/cache" \
   -v "$ISO_DIR/release:/release" \
