@@ -1,0 +1,5 @@
+# Flatpak apps installed on live overlay/apply (or first online omarchy-update).
+# Format: <remote-name>|<remote-url>|<flatpakref-or-app-id>
+# Blank lines and # comments are ignored.
+
+artcraft-oci|https://getartcraft.com/artcraft-oci.flatpakrepo|https://getartcraft.com/apps/pdfcraft/pdfcraft-oci.flatpakref

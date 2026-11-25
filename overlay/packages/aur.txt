@@ -1,6 +1,16 @@
 # AUR packages to pre-build inside the ISO build container and bundle into the Offline Mirror.
 # One package name per line. Blank lines and # comments are ignored.
-#
-# Examples:
-# visual-studio-code-bin
-# 1password
+
+# Editor & GitHub credential manager
+visual-studio-code-bin
+git-credential-manager-bin
+
+# ArtCraft Office Suite (https://getartcraft.com/apps/)
+wordcraft-bin
+gridcraft-bin
+deckcraft-bin
+
+# Proton native Linux desktop apps (https://proton.me)
+proton-mail-bin
+proton-pass-bin
+proton-authenticator-bin

@@ -138,6 +138,35 @@ install_post_update_hook() {
   fi
 }
 
+remove_excluded_webapps() {
+  local user_home=$1
+  local exclude_file="$SCRIPT_DIR/applications/exclude.txt"
+  local app_dir="$user_home/.local/share/applications"
+
+  [[ -f $exclude_file && -d $app_dir ]] || return 0
+
+  local desktop_file
+  while IFS= read -r desktop_file; do
+    rm -f "$app_dir/$desktop_file"
+  done < <(overlay_read_list "$exclude_file")
+}
+
+sync_flatpaks() {
+  local flatpak_file="$SCRIPT_DIR/packages/flatpak.txt"
+  [[ -f $flatpak_file ]] || return 0
+  command -v flatpak &>/dev/null || return 0
+
+  local line remote_name remote_url app_ref
+  while IFS= read -r line; do
+    IFS='|' read -r remote_name remote_url app_ref <<<"$line"
+    [[ -n $app_ref ]] || continue
+    if [[ -n $remote_name && -n $remote_url ]]; then
+      flatpak remote-add --user --if-not-exists "$remote_name" "$remote_url" || true
+    fi
+    flatpak install --user --noninteractive -y "$app_ref" || true
+  done < <(overlay_read_list "$flatpak_file")
+}
+
 default_theme_name() {
   if [[ -f $SCRIPT_DIR/themes/default ]]; then
     tr -d '[:space:]' <"$SCRIPT_DIR/themes/default"
@@ -190,11 +219,18 @@ if (( install_mode )); then
     sync_tree "$INSTALLED_OVERLAY_DIR/profiles/$profile/config" "$target_home/.config" 0 "$target_user"
   fi
 
-  # 4. Install post-update Package Policy hook
+  # 4. Install post-update Package Policy hook & remove excluded webapps
   install_post_update_hook "/etc/skel" ""
   install_post_update_hook "$target_home" "$target_user"
+  remove_excluded_webapps "/etc/skel"
+  remove_excluded_webapps "$target_home"
 
-  # 5. Activate default Material UI v9 theme for the target user
+  # 5. Configure Git Credential Manager with gnome-keyring if installed
+  if command -v git-credential-manager &>/dev/null; then
+    su - "$target_user" -c "git config --global credential.helper manager && git config --global credential.credentialStore secretservice" || true
+  fi
+
+  # 6. Activate default Material UI v9 theme for the target user
   theme=$(default_theme_name)
   if [[ -n $theme && -d $target_home/.config/omarchy/themes/$theme ]]; then
     su - "$target_user" -c "OMARCHY_PATH=/usr/share/omarchy /usr/bin/omarchy-theme-set '$theme'" || true
@@ -240,6 +276,12 @@ if [[ -n $profile && -d $SCRIPT_DIR/profiles/$profile/config ]]; then
 fi
 
 install_post_update_hook "$HOME" ""
+remove_excluded_webapps "$HOME"
+
+if command -v git-credential-manager &>/dev/null; then
+  git config --global credential.helper manager
+  git config --global credential.credentialStore secretservice
+fi
 
 # Enforce Package Policy (install missing add packages, drop excluded packages)
 to_add=()
@@ -265,5 +307,7 @@ if (( ${#to_drop[@]} > 0 )); then
   echo "Removing excluded packages: ${to_drop[*]}"
   omarchy-pkg-drop "${to_drop[@]}"
 fi
+
+sync_flatpaks
 
 echo "Overlay applied successfully (profile: ${profile:-none})."

@@ -1,7 +1,15 @@
 # Extra official Arch or Omarchy packages to install on top of Upstream defaults.
 # One package name per line. Blank lines and # comments are ignored.
-#
-# Examples:
-# firefox
-# ghostty
-# tailscale
+
+# Media & Flatpak runtime
+vlc
+flatpak
+
+# Development & GitHub
+git
+python
+github-cli
+gnome-keyring
+
+# Proton native Linux apps (official Arch [extra])
+proton-vpn-gtk-app

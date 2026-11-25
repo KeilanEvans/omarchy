@@ -6,17 +6,43 @@ omarchy-themes-backgrounds
 omarchy-themes-intros
 omarchy-themes-loops
 
-# Optional upstream apps you can uncomment to exclude:
-# google-chrome
-# libreoffice-fresh
-# obsidian
-# flowtunes
-# fantasi
-# pi-coding-agent
-# superwhisper-bin
-# monologue
-# hype
-# folio
-# papers
-# pinta
-# localsend
+# Productivity, notes, PDF & media apps
+libreoffice-fresh
+obsidian
+papers
+pinta
+gpu-screen-recorder
+yt-dlp
+
+# Omarchy first-party apps not needed
+omawrite
+omacut
+hype
+signed
+monologue
+fantasi
+cliamp
+aether
+gliff
+
+# AI, dictation & extra terminal tools
+superwhisper-bin
+pi-coding-agent
+omarchy-local-ai
+tmux
+playwright-cli
+
+# Extra language runtimes (not required by ISO installer)
+dotnet-runtime
+nodejs
+ruby
+
+# CJK input methods
+fcitx5
+fcitx5-chewing
+fcitx5-chinese-addons
+fcitx5-gtk
+fcitx5-hangul
+fcitx5-mozc
+fcitx5-qt
+fcitx5-table-extra

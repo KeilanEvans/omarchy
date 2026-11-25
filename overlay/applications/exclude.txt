@@ -1,0 +1,22 @@
+# Default Upstream desktop webapps to remove from /etc/skel and ~/.local/share/applications/.
+# Core launchers (Terminal, Browser, Editor, Agent, Activity Monitor, Herdr, Foot) are kept.
+Amap.desktop
+Basecamp.desktop
+Bilibili.desktop
+ChatGPT.desktop
+DeepSeek.desktop
+Discord.desktop
+Game Vibes.desktop
+Google Contacts.desktop
+Google Maps.desktop
+Google Messages.desktop
+Google Photos.desktop
+HEY.desktop
+Netflix.desktop
+Qwen.desktop
+Spotify.desktop
+Weibo.desktop
+WhatsApp.desktop
+X.desktop
+YouTube.desktop
+Zoom.desktop

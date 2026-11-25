@@ -37,3 +37,22 @@ if (( ${#to_drop[@]} > 0 )); then
   echo "Overlay Package Policy: removing excluded packages: ${to_drop[*]}"
   omarchy-pkg-drop "${to_drop[@]}" || true
 fi
+
+# 3. Remove any excluded default desktop webapps
+if [[ -f $OVERLAY_DIR/applications/exclude.txt && -d $HOME/.local/share/applications ]]; then
+  while IFS= read -r desktop_file; do
+    rm -f "$HOME/.local/share/applications/$desktop_file"
+  done < <(overlay_read_list "$OVERLAY_DIR/applications/exclude.txt")
+fi
+
+# 4. Ensure configured Flatpak apps are installed (non-fatal if offline)
+if [[ -f $OVERLAY_DIR/packages/flatpak.txt ]] && command -v flatpak &>/dev/null; then
+  while IFS= read -r line; do
+    IFS='|' read -r remote_name remote_url app_ref <<<"$line"
+    [[ -n $app_ref ]] || continue
+    if [[ -n $remote_name && -n $remote_url ]]; then
+      flatpak remote-add --user --if-not-exists "$remote_name" "$remote_url" || true
+    fi
+    flatpak install --user --noninteractive -y "$app_ref" || true
+  done < <(overlay_read_list "$OVERLAY_DIR/packages/flatpak.txt")
+fi
