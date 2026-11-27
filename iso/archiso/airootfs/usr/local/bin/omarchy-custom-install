@@ -149,6 +149,11 @@ for req in TARGET_DISK LUKS_PASSWORD USERNAME USER_PASSWORD HOSTNAME; do
   fi
 done
 
+# Record complete installer output (pacstrap, mkinitcpio, provision-user, overlay)
+# and copy it into /mnt/var/log/omarchy-custom-install.log before unmounting.
+INSTALL_TRANSCRIPT="/tmp/omarchy-custom-install.log"
+exec > >(tee -a "$INSTALL_TRANSCRIPT") 2>&1
+
 echo "==> [1/7] Partitioning $TARGET_DISK (GPT: 2 GiB EFI + LUKS2 Btrfs)..."
 wipefs -af "$TARGET_DISK"
 sgdisk -Z "$TARGET_DISK"
@@ -272,7 +277,33 @@ mkinitcpio -P
 CHROOT
 
 echo "==> [6/7] Running Upstream omarchy-apply-system and omarchy-provision-user..."
+# @snapshots is already mounted at /mnt/.snapshots; pre-seed the snapper config
+# file so snapper.sh skips `snapper create-config /` (which fails when /.snapshots
+# already exists) and installs Omarchy's retention template directly.
+chmod 750 /mnt/.snapshots
+mkdir -p /mnt/etc/snapper/configs
+: >/mnt/etc/snapper/configs/root
+
 arch-chroot /mnt env OMARCHY_MIRROR="$ISO_CHANNEL" /usr/bin/omarchy-apply-system --install-user "$USERNAME" --first-install
+
+# Pre-seed Overlay themes and activate our default Material UI v9 theme BEFORE
+# omarchy-provision-user runs, because install/user/theme.sh tries to load
+# Upstream's default theme (suppressed by NoExtract) if theme.name is unset.
+mkdir -p /mnt/opt/omarchy-overlay
+cp -a "$OVERLAY_DIR/." /mnt/opt/omarchy-overlay/
+chmod +x /mnt/opt/omarchy-overlay/apply \
+  /mnt/opt/omarchy-overlay/hooks/post-install.d/*.sh \
+  /mnt/opt/omarchy-overlay/hooks/post-update.d/*.sh \
+  /mnt/opt/omarchy-overlay/config/omarchy/hooks/theme-set.d/*.sh 2>/dev/null || true
+
+default_theme=$(tr -d '[:space:]' </mnt/opt/omarchy-overlay/themes/default 2>/dev/null || true)
+if [[ -n $default_theme && -d /mnt/opt/omarchy-overlay/themes/$default_theme ]]; then
+  mkdir -p "/mnt/home/$USERNAME/.config/omarchy/themes"
+  cp -a "/mnt/opt/omarchy-overlay/themes/$default_theme" "/mnt/home/$USERNAME/.config/omarchy/themes/"
+  arch-chroot /mnt chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config/omarchy"
+  arch-chroot /mnt su - "$USERNAME" -c "OMARCHY_PATH=/usr/share/omarchy OMARCHY_THEME_HEADLESS=1 /usr/bin/omarchy-theme-set '$default_theme'"
+fi
+
 arch-chroot /mnt su - "$USERNAME" -c "/usr/bin/omarchy-provision-user --force --first-install"
 
 # Configure SDDM autologin and default Omarchy session (owned by the ISO since LUKS unlocks the machine)
@@ -284,17 +315,14 @@ arch-chroot /mnt systemctl enable sddm.service
 arch-chroot /mnt systemctl set-default graphical.target
 
 echo "==> [7/7] Applying Overlay and Profile (Overlay takes final precedence)..."
-mkdir -p /mnt/opt/omarchy-overlay
-cp -a "$OVERLAY_DIR/." /mnt/opt/omarchy-overlay/
-chmod +x /mnt/opt/omarchy-overlay/apply \
-  /mnt/opt/omarchy-overlay/hooks/post-install.d/*.sh \
-  /mnt/opt/omarchy-overlay/hooks/post-update.d/*.sh \
-  /mnt/opt/omarchy-overlay/config/omarchy/hooks/theme-set.d/*.sh 2>/dev/null || true
 arch-chroot /mnt /bin/bash /opt/omarchy-overlay/apply \
   --install-mode \
   --target-user "$USERNAME" \
   --profile "$OVERLAY_PROFILE"
 rm -rf /mnt/opt/omarchy-overlay
+
+mkdir -p /mnt/var/log
+cp -f "$INSTALL_TRANSCRIPT" /mnt/var/log/omarchy-custom-install.log 2>/dev/null || true
 
 sync
 umount -R /mnt

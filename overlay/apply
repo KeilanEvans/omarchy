@@ -230,10 +230,12 @@ if (( install_mode )); then
     su - "$target_user" -c "git config --global credential.helper manager && git config --global credential.credentialStore secretservice" || true
   fi
 
-  # 6. Activate default Material UI v9 theme for the target user
+  # 6. Activate default Material UI v9 theme for the target user (headless in chroot)
   theme=$(default_theme_name)
   if [[ -n $theme && -d $target_home/.config/omarchy/themes/$theme ]]; then
-    su - "$target_user" -c "OMARCHY_PATH=/usr/share/omarchy /usr/bin/omarchy-theme-set '$theme'" || true
+    su - "$target_user" -c "OMARCHY_PATH=/usr/share/omarchy OMARCHY_THEME_HEADLESS=1 /usr/bin/omarchy-theme-set '$theme'" || true
+    # Trigger theme-set hooks (e.g. GTK 3/4 CSS sync) since headless mode skips runtime retints
+    su - "$target_user" -c "OMARCHY_PATH=/usr/share/omarchy /usr/bin/omarchy-hook theme-set '$theme'" || true
   fi
 
   exit 0
