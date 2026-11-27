@@ -230,6 +230,10 @@ mapfile -t install_pkgs < <(
       linux-firmware \
       linux-omarchy \
       linux-omarchy-headers \
+      pipewire \
+      pipewire-alsa \
+      pipewire-jack \
+      pipewire-pulse \
       snapper \
       zram-generator
     overlay_resolved_install_packages "$SYNTH_ROOT" "$OVERLAY_DIR" "$OVERLAY_PROFILE"
@@ -271,10 +275,22 @@ echo "==> [6/7] Running Upstream omarchy-apply-system and omarchy-provision-user
 arch-chroot /mnt env OMARCHY_MIRROR="$ISO_CHANNEL" /usr/bin/omarchy-apply-system --install-user "$USERNAME" --first-install
 arch-chroot /mnt su - "$USERNAME" -c "/usr/bin/omarchy-provision-user --force --first-install"
 
+# Configure SDDM autologin and default Omarchy session (owned by the ISO since LUKS unlocks the machine)
+mkdir -p /mnt/var/lib/sddm /mnt/etc/sddm.conf.d
+printf '[Last]\nSession=omarchy.desktop\nUser=%s\n' "$USERNAME" >/mnt/var/lib/sddm/state.conf
+printf '[Autologin]\nUser=%s\nSession=omarchy.desktop\n' "$USERNAME" >/mnt/etc/sddm.conf.d/autologin.conf
+arch-chroot /mnt chown -R sddm:sddm /var/lib/sddm 2>/dev/null || true
+arch-chroot /mnt systemctl enable sddm.service
+arch-chroot /mnt systemctl set-default graphical.target
+
 echo "==> [7/7] Applying Overlay and Profile (Overlay takes final precedence)..."
 mkdir -p /mnt/opt/omarchy-overlay
 cp -a "$OVERLAY_DIR/." /mnt/opt/omarchy-overlay/
-arch-chroot /mnt /opt/omarchy-overlay/apply \
+chmod +x /mnt/opt/omarchy-overlay/apply \
+  /mnt/opt/omarchy-overlay/hooks/post-install.d/*.sh \
+  /mnt/opt/omarchy-overlay/hooks/post-update.d/*.sh \
+  /mnt/opt/omarchy-overlay/config/omarchy/hooks/theme-set.d/*.sh 2>/dev/null || true
+arch-chroot /mnt /bin/bash /opt/omarchy-overlay/apply \
   --install-mode \
   --target-user "$USERNAME" \
   --profile "$OVERLAY_PROFILE"

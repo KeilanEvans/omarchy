@@ -22,6 +22,11 @@ echo "==> [1/6] Initializing build container keyring and tools..."
 pacman-key --init
 pacman-key --populate archlinux
 
+# Trust Omarchy's official package signing key (pkgs@omarchy.org)
+pacman-key --recv-keys 40DFB630FF42BCFFB047046CF0134EE680CAC571 --keyserver keys.openpgp.org || \
+  pacman-key --recv-keys 40DFB630FF42BCFFB047046CF0134EE680CAC571
+pacman-key --lsign-key 40DFB630FF42BCFFB047046CF0134EE680CAC571
+
 for keyfile in /src/default/pacman/keys/*.asc; do
   [[ -f $keyfile ]] || continue
   pacman-key --add "$keyfile"
@@ -130,6 +135,33 @@ if (( NO_AUR == 0 )); then
       fi
     done
 
+    # Download runtime dependencies of all built AUR packages into the Offline Mirror
+    mapfile -t aur_deps < <(
+      for pkgfile in "$AUR_CACHE"/*.pkg.tar.zst; do
+        [[ -f $pkgfile ]] || continue
+        bsdtar -xOf "$pkgfile" .PKGINFO 2>/dev/null \
+          | awk -F' = ' '$1 == "depend" { print $2 }' \
+          | sed -e 's/[<>=].*$//'
+      done | awk '!seen[$0]++'
+    )
+
+    if (( ${#aur_deps[@]} > 0 )); then
+      valid_aur_deps=()
+      for dep in "${aur_deps[@]}"; do
+        if pacman --config "$BUILD_PACMAN_CONF" --dbpath "$WORK_DIR/empty-db" -Si -- "$dep" &>/dev/null ||
+           pacman --config "$BUILD_PACMAN_CONF" --dbpath "$WORK_DIR/empty-db" -Sp -- "$dep" &>/dev/null; then
+          valid_aur_deps+=("$dep")
+        fi
+      done
+      if (( ${#valid_aur_deps[@]} > 0 )); then
+        pacman --config "$BUILD_PACMAN_CONF" \
+          --dbpath "$WORK_DIR/empty-db" \
+          --cachedir "$PACMAN_CACHE" \
+          -Sw --noconfirm --needed -- "${valid_aur_deps[@]}"
+      fi
+    fi
+
+    cp -a "$PACMAN_CACHE"/*.pkg.tar.zst "$MIRROR_DIR/" 2>/dev/null || true
     cp -a "$AUR_CACHE"/*.pkg.tar.zst "$MIRROR_DIR/" 2>/dev/null || true
   fi
 fi
@@ -170,6 +202,17 @@ install -m 0755 /src/iso/archiso/airootfs/usr/local/bin/omarchy-custom-install \
   "$PROFILE_DIR/airootfs/usr/local/bin/omarchy-custom-install"
 install -m 0644 /src/iso/archiso/airootfs/etc/profile.d/99-omarchy-installer.sh \
   "$PROFILE_DIR/airootfs/etc/profile.d/99-omarchy-installer.sh"
+
+# archiso releng uses zsh for root, which reads /etc/zsh/zprofile rather than /etc/profile.d/
+mkdir -p "$PROFILE_DIR/airootfs/etc/zsh"
+install -m 0644 /src/iso/archiso/airootfs/etc/profile.d/99-omarchy-installer.sh \
+  "$PROFILE_DIR/airootfs/etc/zsh/zprofile"
+
+# Ensure mkarchiso preserves executable bits on installer and overlay scripts
+cat >>"$PROFILE_DIR/profiledef.sh" <<'EOF'
+file_permissions["/usr/local/bin/omarchy-custom-install"]="0:0:755"
+file_permissions["/opt/omarchy-overlay/apply"]="0:0:755"
+EOF
 
 mkarchiso -v -w "$WORK_DIR/archiso-work" -o /release "$PROFILE_DIR"
 
